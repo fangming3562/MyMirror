@@ -1,0 +1,16 @@
+/private/
+/production/
+/config.json
+/*auth*.json
+/*accounts*.json
+/.env*
+/fuclaude
+/*.tar.gz
+/*.zip
+/*.pem
+/*.key
+__pycache__/
+.DS_Store
+/runtime/
+/.venv/
+*.py[cod]

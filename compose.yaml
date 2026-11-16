@@ -1,0 +1,13 @@
+services:
+  mirror:
+    build: .
+    platform: linux/amd64
+    init: true
+    user: "${MIRROR_UID:?Use make up}:${MIRROR_GID:?Use make up}"
+    ports:
+      - "${MIRROR_BIND:-127.0.0.1}:${MIRROR_PORT:-9443}:${MIRROR_PORT:-9443}"
+      - "${MIRROR_BIND:-127.0.0.1}:${MIRROR_FRAME_FIRST:-11443}-${MIRROR_FRAME_LAST:-11474}:${MIRROR_FRAME_FIRST:-11443}-${MIRROR_FRAME_LAST:-11474}"
+    volumes:
+      - ./runtime:/runtime
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

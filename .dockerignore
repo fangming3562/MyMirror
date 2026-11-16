@@ -1,0 +1,12 @@
+**
+!Dockerfile
+!requirements.txt
+!deploy/
+!deploy/*.py
+!mirror/
+!mirror/*.py
+!mirror/*.js
+!mirror/*.html
+!private/
+!private/fuclaude
+!private/frame-shell.js
