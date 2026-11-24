@@ -56,7 +56,7 @@ http {{
         '' close;
     }}
     server {{
-        listen {listen}:{port} ssl;
+        listen {listen}:{port} ssl http2;
         server_name {host(config["host"])};
         ssl_certificate "{runtime}/main.crt";
         ssl_certificate_key "{runtime}/main.key";

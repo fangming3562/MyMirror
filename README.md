@@ -1,8 +1,33 @@
 # MyMirror
 
-MyMirror 是一套自托管的 Claude 侧栏与转发桥接，从此前使用的 9443 版镜像整理而来。它提供站点登录、账号管理和侧栏切换，并为流式响应和文件预览提供转发。镜像使用已有的 Fuclaude 运行程序；本仓库与 Anthropic 无隶属关系。
+MyMirror 是一套自托管的 Claude 镜像，从此前使用的 9443 版整理而来。它保留账号侧栏，并把流式回复、附件传输和 Claude Docs 预览的兼容处理带到新部署。镜像使用已有的 Fuclaude 运行程序；本仓库与 Anthropic 无隶属关系。
 
 ![MyMirror 账号管理页：空账号库首次启动](docs/accounts-preview.png)
+
+## 从旧版带过来的功能
+
+- **流式回复：** HTTPS 主站支持 HTTP/2；转发层不等待整段回复结束，保留 SSE、Connect 响应和相关请求头。
+- **附件与下载：** 保留附件请求的原始二进制内容和重复查询参数。文件响应逐块下发，支持 Range；遇到缺失的 Content-Type，按响应中的文件名推断类型。桥接层仍会先读完整的上传请求体，上传上限为 100 MiB。
+- **Docs 预览：** 使用独立的浏览器来源和预览端口，保留文件视图渲染、授权 Cookie 隔离及 WebSocket 同步。
+- **思考展示：** 响应中上游已提供给页面的公开思考事件会随流转发；具体展示取决于模型和上游界面。旧版曾试用的自定义实时思考面板已回退。
+
+## 用私有包迁移到新机器
+
+已经持有两份原版运行文件的用户，可以从 Git 工作目录生成私有部署包。包内含当前提交的源码和两份运行文件；新实例会创建自己的站点配置和空账号库。
+
+~~~sh
+python3 deploy/package.py ../MyMirror-deploy-private.tar.gz
+~~~
+
+把包通过受控渠道传到 Linux x86-64 机器，解压到空目录后启动：
+
+~~~sh
+tar -xzf MyMirror-deploy-private.tar.gz
+cd MyMirror
+make up
+~~~
+
+私有包包含外部运行资源，请和公开源码分开存放。目标机器仍需安装本节下方列出的工具。
 
 ## 先启动一个本机实例
 
@@ -25,7 +50,7 @@ make up
 
 启动器会校验文件并生成一个空账号库。打开 [https://127.0.0.1:9443/mirror/accounts](https://127.0.0.1:9443/mirror/accounts)，用本机 `runtime/site-password` 里的站点密码进入账号管理。首次启动生成自签证书；默认只监听本机回环地址。
 
-在没有 Docker 的 Linux 主机上，可以用标准 Nginx 和独立 Python 环境运行：
+在没有 Docker 的 Linux 主机上，可以用带 HTTP/2 模块的标准 Nginx 和独立 Python 环境运行：
 
 ~~~sh
 python3 -m venv .venv
@@ -46,4 +71,4 @@ python3 -m venv .venv
 make test PYTHON=.venv/bin/python
 ~~~
 
-已用独立的 Linux 实例验证原生启动、HTTPS、站点登录和空账号管理页。仓库的自动测试覆盖账号切换等逻辑及预览路由。Docker 构建，以及真实账号的流式回复、上传和下载，部署时仍需按[验收列表](deployment-target.md#验收列表)核对。
+已用独立的 Linux 实例验证原生启动、HTTPS、站点登录和空账号管理页。自动测试覆盖账号切换、预览路由、首个流式事件、附件请求内容及分段下载。Docker 构建，以及真实账号的流式回复、上传和下载，部署时仍需按[验收列表](deployment-target.md#验收列表)核对。

@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from curl_cffi.requests import Headers
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "mirror"))
 sys.path.insert(0, str(ROOT / "deploy"))
@@ -24,8 +26,10 @@ class DeploymentTest(unittest.TestCase):
 
     def test_routes_put_frames_on_distinct_ports_and_deny_internal_routes(self):
         text = nginx_configuration(self.config, Path("/preview"), "127.0.0.1", "a" * 64)
-        self.assertIn("listen 127.0.0.1:19443 ssl;", text)
+        self.assertIn("listen 127.0.0.1:19443 ssl http2;", text)
         self.assertIn("listen 127.0.0.1:21446 ssl;", text)
+        self.assertIn("proxy_buffering off;", text)
+        self.assertIn("proxy_request_buffering off;", text)
         self.assertIn("server_name content.example.net;", text)
         self.assertIn("location = /login_token { return 404; }", text)
         self.assertIn("location ^~ /__mirror_content/ { return 404; }", text)
@@ -101,6 +105,71 @@ class BridgeTest(unittest.TestCase):
         r = self.request("GET", "/mirror/frame-shell.js?port=" + str(port))
         self.assertIn(b"https://content.example.net:21443", r.data)
         self.assertEqual(self.request("GET", "/mirror/frame-shell.js?port=21444").status_code, 404)
+
+    def upstream_response(self, headers, chunks, status=200):
+        bridge.write_config({
+            "bridge_secret": self.secret, "default_account": "fixture",
+            "accounts": [{"id": "fixture", "name": "Fixture", "session_key": "testing-only"}],
+        })
+        patches = [patch.object(bridge.pool, method) for method in ("acquire", "release")]
+        for patcher in patches:
+            self.addCleanup(patcher.stop)
+        acquire, release = [patcher.start() for patcher in patches]
+        session = acquire.return_value
+        response = session.request.return_value
+        response.status_code = status
+        response.headers = Headers(headers)
+        response.iter_content.side_effect = lambda: iter(chunks)
+        return session, response, release
+
+    def test_sse_forwards_first_event_before_upstream_finishes_and_releases_on_close(self):
+        first = b'event: delta\ndata: {"type":"thinking_delta","thinking":"visible fixture"}\n\n'
+        second = b'event: delta\ndata: {"type":"text_delta","text":"answer"}\n\n'
+        read = []
+
+        def chunks():
+            for item in (first, second):
+                read.append(item)
+                yield item
+
+        session, upstream, release = self.upstream_response(
+            {"Content-Type": "text/event-stream"}, chunks()
+        )
+        result = self.request("POST", "/api/example/completion", json={"text": "test"}, buffered=False)
+        with result:
+            self.assertEqual(result.mimetype, "text/event-stream")
+            self.assertEqual(next(iter(result.response)), first)
+            self.assertEqual(read, [first])
+            self.assertTrue(session.request.call_args.kwargs["stream"])
+        upstream.close.assert_called_once()
+        release.assert_called_once_with(session)
+
+    def test_upload_preserves_multipart_bytes_and_repeated_query_parameters(self):
+        payload = (b'--fixture\r\nContent-Disposition: form-data; name="file"; filename="example.bin"'
+                   b'\r\nContent-Type: application/octet-stream\r\n\r\n\x00\xff\r\n--fixture--\r\n')
+        session, _, _ = self.upstream_response({"Content-Type": "application/json"}, [b'{"ok":true}'])
+        result = self.request("POST", "/api/files?tag=one&tag=two&empty=&path=A%2BB",
+                              content_type="multipart/form-data; boundary=fixture", data=payload)
+        with result:
+            self.assertEqual(result.get_json(), {"ok": True})
+        options = session.request.call_args.kwargs
+        self.assertEqual(options["data"], payload)
+        self.assertEqual(options["headers"]["Content-Type"], "multipart/form-data; boundary=fixture")
+        self.assertEqual(options["params"], [("tag", "one"), ("tag", "two"), ("empty", ""), ("path", "A+B")])
+
+    def test_binary_download_preserves_range_body_and_infers_file_type(self):
+        session, _, _ = self.upstream_response({
+            "Content-Disposition": "attachment; filename=example.docx",
+            "Content-Range": "bytes 0-3/8",
+        }, [b"PK\x03\x04"], status=206)
+        result = self.request("GET", "/api/files/example/contents", headers={"Range": "bytes=0-3"})
+        with result:
+            self.assertEqual(result.status_code, 206)
+            self.assertEqual(result.data, b"PK\x03\x04")
+            self.assertEqual(result.headers["Content-Range"], "bytes 0-3/8")
+            self.assertEqual(result.mimetype,
+                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.assertEqual(session.request.call_args.kwargs["headers"]["Range"], "bytes=0-3")
 
 
 if __name__ == "__main__":
