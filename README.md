@@ -1,37 +1,31 @@
-# 自用 Claude 镜像框架 · 9443 版
+# MyMirror
 
-此仓库从已运行的个人镜像整理而来。保留原来的侧栏账号入口、账号管理界面、流式接口和文件预览桥接。换服务器时，由启动器生成该实例的 HTTPS 入口和预览来源配置。它与 Anthropic 无隶属关系。
+MyMirror 是一套自托管的 Claude 侧栏与转发桥接，从此前使用的 9443 版镜像整理而来。它提供站点登录、账号管理和侧栏切换，并为流式响应和文件预览提供转发。镜像使用已有的 Fuclaude 运行程序；本仓库与 Anthropic 无隶属关系。
 
-仓库提供自定义代码、安装器和 Docker Compose 配置。当前版的界面依赖已有的 Linux x86-64 运行程序；旧的文件预览还需要原版的脚本。**Git 仓库不含这两份外部资源，也不含服务器账号库、站点密码、证书或生产配置。**
+![MyMirror 账号管理页：空账号库首次启动](docs/accounts-preview.png)
 
-## 安装
+## 先启动一个本机实例
 
-在装有 Docker Compose、Python 3.9+、OpenSSL 和 make 的 Linux x86-64 机器上，将你有权使用的两份原版文件放入：
+需要 Linux x86-64、Docker Compose、Python 3.9 或更新版本、OpenSSL 和 make。请先准备这两份你有权使用的运行文件：
 
-| 路径 | 来源 |
+| 放置路径 | 所需文件 |
 | --- | --- |
-| private/fuclaude | 与线上校验值一致的 Linux x86-64 程序。参考 [上游 v0.5.1 发行页](https://github.com/wozulong/fuclaude/releases/tag/v0.5.1)。 |
-| private/frame-shell.js | 已部署版本中的文件预览运行脚本。 |
+| `private/fuclaude` | 与 [manifest.json](manifest.json) 中记录一致的 Linux x86-64 程序，参考 [Fuclaude v0.5.1 发行页](https://github.com/wozulong/fuclaude/releases/tag/v0.5.1)。 |
+| `private/frame-shell.js` | 原有部署使用的文件预览脚本，版本也须与清单一致。 |
 
-然后以普通用户运行：
+GitHub 提供的是自定义源码与部署配置。克隆后，放好这两份文件才能启动。
 
 ~~~sh
+git clone https://github.com/fangming3562/MyMirror.git
+cd MyMirror
+mkdir -p private
+# 把上面两份文件放入 private/
 make up
 ~~~
 
-启动器会核对两份文件的 SHA-256，生成独立的输出目录 runtime/，启动三个组件。默认从本机打开 [https://127.0.0.1:9443/mirror/accounts](https://127.0.0.1:9443/mirror/accounts)，站点密码保存在 runtime/site-password。初次启动使用本机自签证书，新实例的账号库为空。默认只监听回环地址。
+启动器会校验文件并生成一个空账号库。打开 [https://127.0.0.1:9443/mirror/accounts](https://127.0.0.1:9443/mirror/accounts)，用本机 `runtime/site-password` 里的站点密码进入账号管理。首次启动生成自签证书；默认只监听本机回环地址。
 
-需要远程验收时，可以通过 SSH 本地端口转发。要直接对外开放，须提供入口与独立文件预览域名的有效证书，并只开放需要的端口。文件预览要使用与主站隔离的域名，避免用户内容与主站共享 Cookie；部署选项见 [deployment-target.md](deployment-target.md)。
-
-~~~sh
-make down
-~~~
-
-停止后，runtime/ 下的账号、站点设置和证书会保留。在受控环境迁移账号时应把状态和代码分开；不要把 runtime/ 或站点数据上传到 GitHub。
-
-## 无 Docker 启动
-
-在 Linux x86-64 上也可用标准 Nginx 和独立虚拟环境启动：
+在没有 Docker 的 Linux 主机上，可以用标准 Nginx 和独立 Python 环境运行：
 
 ~~~sh
 python3 -m venv .venv
@@ -40,12 +34,16 @@ python3 -m venv .venv
 .venv/bin/python deploy/run.py --nginx /usr/sbin/nginx
 ~~~
 
-同机并行验证可以用 deploy/setup.py 的端口参数，选一组互不重叠的端口。在宝塔等环境里，启动器应使用标准 Nginx，而不是面板自带的定制程序。
+## 接入其他设备
 
-## 校验
+默认主站用 HTTPS `9443`，文件预览使用独立来源和 `11443–11474` 端口。仅远程检查登录和账号页时，可以通过 SSH 转发主站端口。对外部署时，给主站和预览配置独立域名与相应的有效证书，只开放所需端口。参数和验收步骤见[部署说明](deployment-target.md)。
+
+此版本适合个人或可信环境：知道站点密码的人共享该实例的账号列表。网页登录会话保存在服务器的 `runtime/accounts.json` 中，文件限制访问权限，但内容未加密。请把 `runtime/` 与源码分开备份；`make down` 停止服务时会保留这些数据。自行构建的 Docker 镜像包含两份外部运行文件，发布源码时不要一并上传镜像。
+
+## 验证
 
 ~~~sh
 make test PYTHON=.venv/bin/python
 ~~~
 
-manifest.json 记录整理前的线上文件与运行版本。verify_bundle.py 校验原始目录或原始补丁备份；本仓库的可移植代码包含参数化和空账号初始化改动，四个自定义文件以 Git 版本为准。首次发布前仍应使用独立测试账号在浏览器里实际验收流式回复、上传、生成预览和下载。
+已用独立的 Linux 实例验证原生启动、HTTPS、站点登录和空账号管理页。仓库的自动测试覆盖账号切换等逻辑及预览路由。Docker 构建，以及真实账号的流式回复、上传和下载，部署时仍需按[验收列表](deployment-target.md#验收列表)核对。
